@@ -115,6 +115,10 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if self.path == "/api/set_image":
             self._handle_set_image(body)
+        elif self.path == "/api/flip":
+            self._handle_flip(body)
+        elif self.path == "/api/fit_mode":
+            self._handle_fit_mode(body)
         elif self.path == "/api/start":
             self._handle_start()
         elif self.path == "/api/stop":
@@ -192,6 +196,26 @@ class APIHandler(BaseHTTPRequestHandler):
             success = self.cam_manager.set_image(img)
             if success:
                 logger.info(f"已接收图片: {img.shape[1]}x{img.shape[0]}")
+
+                # 支持可选参数 flip, fit_mode, auto_resolution
+                if "flip" in data:
+                    self.cam_manager.flip_horizontal = bool(data["flip"])
+                    if self.config:
+                        self.config.flip_horizontal = self.cam_manager.flip_horizontal
+                        self.config.save()
+                if "fit_mode" in data:
+                    mode = str(data["fit_mode"]).lower()
+                    if mode in ("fit", "fill", "stretch"):
+                        self.cam_manager.fit_mode = mode
+                        if self.config:
+                            self.config.fit_mode = mode
+                            self.config.save()
+                if "auto_resolution" in data:
+                    self.cam_manager.auto_resolution = bool(data["auto_resolution"])
+                    if self.config:
+                        self.config.auto_resolution = self.cam_manager.auto_resolution
+                        self.config.save()
+
                 self._send_json({"ok": True})
             else:
                 self._send_error("设置图片失败", 500, "SET_IMAGE_FAILED")
@@ -199,6 +223,59 @@ class APIHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"处理图片时出错: {e}")
             self._send_error(f"处理图片时出错: {e!s}", 500, "IMAGE_PROCESS_ERROR")
+
+    def _handle_flip(self, body: str):
+        """处理镜像切换/设置请求"""
+        if not self.cam_manager:
+            self._send_error("摄像头管理器未初始化", 500, "CAM_NOT_INITIALIZED")
+            return
+
+        flip = None
+        if body.strip():
+            try:
+                data = json.loads(body)
+                if "flip" in data:
+                    flip = bool(data["flip"])
+            except Exception as e:
+                logger.debug(f"解析 flip 请求体失败，将执行切换: {e}")
+
+        if flip is not None:
+            self.cam_manager.flip_horizontal = flip
+        else:
+            self.cam_manager.toggle_flip()
+
+        if self.config:
+            self.config.flip_horizontal = self.cam_manager.flip_horizontal
+            self.config.save()
+
+        self._send_json({
+            "ok": True,
+            "flip_horizontal": self.cam_manager.flip_horizontal,
+        })
+
+    def _handle_fit_mode(self, body: str):
+        """处理适配模式设置请求 (fit/fill/stretch)"""
+        if not self.cam_manager:
+            self._send_error("摄像头管理器未初始化", 500, "CAM_NOT_INITIALIZED")
+            return
+
+        try:
+            data = json.loads(body)
+            mode = str(data.get("mode", "")).lower()
+            if mode not in ("fit", "fill", "stretch"):
+                self._send_error(
+                    "无效的适配模式 (必须为 fit/fill/stretch)", 400, "INVALID_MODE"
+                )
+                return
+
+            self.cam_manager.fit_mode = mode
+            if self.config:
+                self.config.fit_mode = mode
+                self.config.save()
+
+            self._send_json({"ok": True, "fit_mode": self.cam_manager.fit_mode})
+        except Exception as e:
+            self._send_error(f"请求解析失败: {e!s}", 400, "INVALID_REQUEST")
 
     def _handle_start(self):
         """处理启动摄像头请求"""
