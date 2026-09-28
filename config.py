@@ -42,8 +42,8 @@ class AppConfig:
     last_image: str | None = None
 
     # GUI 配置
-    window_width: int = 480
-    window_height: int = 620
+    window_width: int = 500
+    window_height: int = 660
     theme: str = "dark"  # dark/light
 
     @classmethod
