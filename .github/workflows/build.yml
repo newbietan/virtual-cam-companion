@@ -70,6 +70,7 @@ jobs:
             --hidden-import "cam_manager" ^
             --hidden-import "api_server" ^
             --hidden-import "gui" ^
+            --hidden-import "driver_helper" ^
             app.py
 
       - name: Compile Installer (Inno Setup)
@@ -117,6 +118,7 @@ jobs:
             --hidden-import "cam_manager" \
             --hidden-import "api_server" \
             --hidden-import "gui" \
+            --hidden-import "driver_helper" \
             app.py
 
       - name: Create DMG Image
@@ -170,6 +172,7 @@ jobs:
             --hidden-import "cam_manager" \
             --hidden-import "api_server" \
             --hidden-import "gui" \
+            --hidden-import "driver_helper" \
             app.py
 
       - name: Package Linux Archive

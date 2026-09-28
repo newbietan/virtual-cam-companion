@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import platform
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
 import cv2  # type: ignore
 import numpy as np  # type: ignore
@@ -17,6 +17,7 @@ from PIL import Image, ImageTk  # type: ignore
 from api_server import APIServer, start_api_server
 from cam_manager import VirtualCamManager
 from config import AppConfig
+from driver_helper import show_driver_setup_dialog
 from utils import get_log_file, setup_logger
 
 logger = setup_logger("GUI", get_log_file())
@@ -299,7 +300,7 @@ class VirtualCamApp:
         else:
             ok, msg = self._cam_manager.start()
             if not ok:
-                messagebox.showerror("启动失败", msg)
+                show_driver_setup_dialog(self._root, msg, on_retry=self._toggle_camera)
 
     def _on_close(self):
         """窗口关闭处理"""
