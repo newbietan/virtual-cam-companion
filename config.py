@@ -8,6 +8,7 @@ import os
 import sys
 from dataclasses import dataclass, field, asdict
 from typing import Optional, List
+from utils import get_app_data_dir
 
 
 @dataclass
@@ -22,6 +23,8 @@ class AppConfig:
     cam_width: int = 1280
     cam_height: int = 720
     cam_fps: int = 30
+    cam_device: Optional[str] = None      # 虚拟摄像头设备名或路径 (如 Linux 下 /dev/video10)
+    cam_backend: Optional[str] = None     # 后端类型 (obs / v4l2loopback / unitycapture / None 为自动)
     
     # 图片配置
     max_image_size_mb: int = 10
@@ -37,15 +40,12 @@ class AppConfig:
     
     @classmethod
     def get_config_path(cls) -> str:
-        """获取配置文件路径"""
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(base_dir, "config.json")
+        """获取跨平台配置文件路径"""
+        config_dir = get_app_data_dir()
+        return os.path.join(config_dir, "config.json")
     
     @classmethod
-    def load(cls, config_path: str = None) -> 'AppConfig':
+    def load(cls, config_path: Optional[str] = None) -> 'AppConfig':
         """
         从文件加载配置，缺失项使用默认值
         
@@ -80,7 +80,7 @@ class AppConfig:
         
         return config
     
-    def save(self, config_path: str = None):
+    def save(self, config_path: Optional[str] = None):
         """
         保存配置到文件
         

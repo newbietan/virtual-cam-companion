@@ -1,4 +1,4 @@
-name: Build VirtualCam Companion
+name: Build VirtualCam Companion (Cross-Platform)
 
 on:
   push:
@@ -6,17 +6,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号 (如 v2.0.1)'
+        description: '版本号 (如 v2.1.0)'
         required: true
-        default: 'v2.0.1'
+        default: 'v2.1.0'
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
+    name: Build Windows
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,26 +32,25 @@ jobs:
           pip install pyvirtualcam opencv-python Pillow pyinstaller
 
       - name: Extract OBS Virtual Camera driver
-        run: powershell -ExecutionPolicy Bypass -File scripts/extract_obs_vcam.ps1
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass `
+            -File scripts/extract_obs_vcam.ps1
 
       - name: Set version in setup.iss
         shell: powershell
         run: |
-          # 获取版本号：手动触发用 inputs.version，tag 触发用 tag 名
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $version = "${{ inputs.version }}"
           } else {
             $version = "${{ github.ref_name }}"
           }
           Write-Host "Version: $version"
-          
-          # 替换 setup.iss 中的版本号
           $content = Get-Content setup.iss -Raw
-          $content = $content -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$version`""
+          $pat = '#define MyAppVersion ".*"'
+          $rep = "#define MyAppVersion `"$version`""
+          $content = $content -replace $pat, $rep
           Set-Content setup.iss -Value $content
-          
-          Write-Host "setup.iss updated:"
-          Select-String -Path setup.iss -Pattern "MyAppVersion"
 
       - name: Build exe with PyInstaller
         shell: cmd
@@ -61,6 +60,8 @@ jobs:
             --windowed ^
             --name "VirtualCamCompanion" ^
             --icon "app.ico" ^
+            --add-data "app.ico;." ^
+            --add-data "app.png;." ^
             --distpath "dist" ^
             --workpath "build" ^
             --specpath "." ^
@@ -77,15 +78,149 @@ jobs:
           choco install innosetup -y
           iscc setup.iss /Oinstaller
 
-      - name: Upload Installer
+      - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VirtualCamCompanion-Setup
+          name: windows-installer
           path: installer/VirtualCamCompanion-Setup.exe
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyvirtualcam opencv-python Pillow pyinstaller
+
+      - name: Build macOS App with PyInstaller
+        run: |
+          pyinstaller \
+            --windowed \
+            --name "VirtualCamCompanion" \
+            --icon "app.icns" \
+            --add-data "app.png:." \
+            --add-data "app.icns:." \
+            --distpath "dist" \
+            --workpath "build" \
+            --specpath "." \
+            --hidden-import "utils" \
+            --hidden-import "config" \
+            --hidden-import "cam_manager" \
+            --hidden-import "api_server" \
+            --hidden-import "gui" \
+            app.py
+
+      - name: Create DMG Image
+        run: |
+          mkdir -p dmg_root
+          cp -r "dist/VirtualCamCompanion.app" dmg_root/
+          ln -s /Applications dmg_root/Applications
+          hdiutil create \
+            -volname "VirtualCamCompanion" \
+            -srcfolder dmg_root \
+            -ov -format UDZO \
+            "dist/VirtualCamCompanion-macOS.dmg"
+
+      - name: Upload macOS DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/VirtualCamCompanion-macOS.dmg
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System and Python Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+          python -m pip install --upgrade pip
+          pip install pyvirtualcam opencv-python Pillow pyinstaller
+
+      - name: Build Linux Binary with PyInstaller
+        run: |
+          pyinstaller \
+            --onefile \
+            --windowed \
+            --name "VirtualCamCompanion" \
+            --add-data "app.png:." \
+            --distpath "dist" \
+            --workpath "build" \
+            --specpath "." \
+            --hidden-import "utils" \
+            --hidden-import "config" \
+            --hidden-import "cam_manager" \
+            --hidden-import "api_server" \
+            --hidden-import "gui" \
+            app.py
+
+      - name: Package Linux Archive
+        run: |
+          mkdir -p dist/package
+          cp dist/VirtualCamCompanion dist/package/
+          cp scripts/setup_linux_v4l2.sh dist/package/
+          cp README.md dist/package/
+          tar -czvf "dist/VirtualCamCompanion-Linux-x86_64.tar.gz" \
+            -C dist/package .
+
+      - name: Upload Linux Tarball Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: dist/VirtualCamCompanion-Linux-x86_64.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: release_assets
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: release_assets
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-tarball
+          path: release_assets
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: installer/VirtualCamCompanion-Setup.exe
+          files: |
+            release_assets/VirtualCamCompanion-Setup.exe
+            release_assets/VirtualCamCompanion-macOS.dmg
+            release_assets/VirtualCamCompanion-Linux-x86_64.tar.gz
           generate_release_notes: true
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          tag_name: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+                inputs.version || github.ref_name }}
