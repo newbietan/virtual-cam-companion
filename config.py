@@ -29,7 +29,7 @@ class AppConfig:
 
     # 画面适配与处理配置
     fit_mode: str = "fit"  # 适配模式: fit (等比完整包含) / fill (等比裁剪填满) / stretch (强制拉伸)
-    auto_resolution: bool = True  # 自动将摄像头分辨率适配为输入图片尺寸
+    auto_resolution: bool = False  # 自动分辨率模式 (macOS OBS 驱动建议保持 False 使用 1280x720 以免绿幕)
     flip_horizontal: bool = False  # 水平镜像翻转 (纠正网页/会议软件的前置镜像)
 
     # 图片配置

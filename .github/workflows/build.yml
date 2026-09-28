@@ -29,7 +29,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyvirtualcam opencv-python Pillow pyinstaller
+          pip install pyvirtualcam opencv-python-headless Pillow pyinstaller
 
       - name: Extract OBS Virtual Camera driver
         shell: powershell
@@ -58,6 +58,14 @@ jobs:
           pyinstaller ^
             --onefile ^
             --windowed ^
+            --strip ^
+            --exclude-module "matplotlib" ^
+            --exclude-module "scipy" ^
+            --exclude-module "pandas" ^
+            --exclude-module "unittest" ^
+            --exclude-module "test" ^
+            --exclude-module "pydoc" ^
+            --exclude-module "tkinter.test" ^
             --name "VirtualCamCompanion" ^
             --icon "app.ico" ^
             --add-data "app.ico;." ^
@@ -100,12 +108,20 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyvirtualcam opencv-python Pillow pyinstaller
+          pip install pyvirtualcam opencv-python-headless Pillow pyinstaller
 
       - name: Build macOS App with PyInstaller
         run: |
           pyinstaller \
             --windowed \
+            --strip \
+            --exclude-module "matplotlib" \
+            --exclude-module "scipy" \
+            --exclude-module "pandas" \
+            --exclude-module "unittest" \
+            --exclude-module "test" \
+            --exclude-module "pydoc" \
+            --exclude-module "tkinter.test" \
             --name "VirtualCamCompanion" \
             --icon "app.icns" \
             --add-data "app.png:." \
@@ -121,6 +137,12 @@ jobs:
             --hidden-import "driver_helper" \
             app.py
 
+      - name: Strip dylibs and optimize bundle
+        run: |
+          find "dist/VirtualCamCompanion.app" \
+            -type f \( -name "*.dylib" -o -name "*.so" \) \
+            -exec strip -S {} + 2>/dev/null || true
+
       - name: Create DMG Image
         run: |
           mkdir -p dmg_root
@@ -129,7 +151,7 @@ jobs:
           hdiutil create \
             -volname "VirtualCamCompanion" \
             -srcfolder dmg_root \
-            -ov -format UDZO \
+            -ov -format UDBZ \
             "dist/VirtualCamCompanion-macOS.dmg"
 
       - name: Upload macOS DMG Artifact
@@ -155,13 +177,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-tk
           python -m pip install --upgrade pip
-          pip install pyvirtualcam opencv-python Pillow pyinstaller
+          pip install pyvirtualcam opencv-python-headless Pillow pyinstaller
 
       - name: Build Linux Binary with PyInstaller
         run: |
           pyinstaller \
             --onefile \
             --windowed \
+            --strip \
+            --exclude-module "matplotlib" \
+            --exclude-module "scipy" \
+            --exclude-module "pandas" \
+            --exclude-module "unittest" \
+            --exclude-module "test" \
+            --exclude-module "pydoc" \
+            --exclude-module "tkinter.test" \
             --name "VirtualCamCompanion" \
             --add-data "app.png:." \
             --distpath "dist" \

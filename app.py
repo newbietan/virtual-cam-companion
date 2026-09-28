@@ -51,11 +51,9 @@ def main():
     try:
         import cv2  # type: ignore
 
-        logger.info(f"OpenCV 版本: {cv2.__version__}")
+        logger.info(f"OpenCV 已安装 (版本: {cv2.__version__})")
     except ImportError:
-        logger.error("opencv-python 未安装")
-        print("错误: opencv-python 未安装。请运行: pip install opencv-python")
-        sys.exit(1)
+        logger.info("OpenCV 未安装，将使用 Pillow 图像处理引擎")
 
     try:
         import PIL  # type: ignore

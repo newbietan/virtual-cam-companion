@@ -6,12 +6,13 @@ VirtualCam Companion - HTTP API 服务模块
 
 from __future__ import annotations
 
+import io
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-import cv2  # type: ignore
 import numpy as np  # type: ignore
+from PIL import Image  # type: ignore
 
 from cam_manager import VirtualCamManager
 from config import AppConfig
@@ -179,14 +180,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
         # 5. 解码图片
         try:
-            nparr = np.frombuffer(img_data, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-            if img is None:
-                self._send_error(
-                    "图片解码失败，不支持的格式", 400, "IMAGE_DECODE_FAILED"
-                )
-                return
+            pil_img = Image.open(io.BytesIO(img_data)).convert("RGB")
+            img = np.ascontiguousarray(np.array(pil_img, dtype=np.uint8))
 
             # 6. 设置到摄像头管理器
             if not self.cam_manager:

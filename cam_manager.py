@@ -5,15 +5,15 @@ VirtualCam Companion - 虚拟摄像头管理模块
 
 from __future__ import annotations
 
-import math
+import os
 import platform
 import threading
 import time
 from collections.abc import Callable
 from typing import Any
 
-import cv2  # type: ignore
 import numpy as np  # type: ignore
+from PIL import Image, ImageDraw, ImageOps  # type: ignore
 
 from utils import get_log_file, setup_logger
 
@@ -62,7 +62,7 @@ class VirtualCamManager:
         device: str | None = None,
         backend: str | None = None,
         fit_mode: str = "fit",
-        auto_resolution: bool = True,
+        auto_resolution: bool = False,
         flip_horizontal: bool = False,
     ):
         """
@@ -241,58 +241,41 @@ class VirtualCamManager:
         flip_h: bool,
     ) -> np.ndarray:
         """
-        处理单帧图像：等比/填充/拉伸适配 + 水平镜像翻转 + 色彩空间转换 (BGR -> RGB)
+        处理单帧图像：等比/填充/拉伸适配 + 水平镜像翻转 + 确保 C 连续内存 (uint8 RGB)
         """
-        img_h, img_w = img.shape[:2]
+        pil_img = Image.fromarray(img) if isinstance(img, np.ndarray) else img
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+
+        img_w, img_h = pil_img.size
 
         if fit_mode == "stretch" or (img_w == target_w and img_h == target_h):
-            # 强制拉伸或尺寸恰好一致
             if img_w == target_w and img_h == target_h:
-                frame = img.copy()
+                frame_pil = pil_img
             else:
-                interp = (
-                    cv2.INTER_AREA
-                    if (target_w < img_w and target_h < img_h)
-                    else cv2.INTER_LINEAR
+                frame_pil = pil_img.resize(
+                    (target_w, target_h), Image.Resampling.BILINEAR
                 )
-                frame = cv2.resize(img, (target_w, target_h), interpolation=interp)
 
         elif fit_mode == "fill":
-            # 填满裁切 (保持宽高比，放大直到填满全屏，超出部分居中裁剪)
-            scale = max(target_w / img_w, target_h / img_h)
-            new_w = max(target_w, int(math.ceil(img_w * scale)))
-            new_h = max(target_h, int(math.ceil(img_h * scale)))
-
-            interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-            resized = cv2.resize(img, (new_w, new_h), interpolation=interp)
-
-            x_offset = max(0, (new_w - target_w) // 2)
-            y_offset = max(0, (new_h - target_h) // 2)
-            frame = resized[
-                y_offset : y_offset + target_h, x_offset : x_offset + target_w
-            ]
+            frame_pil = ImageOps.fit(
+                pil_img, (target_w, target_h), method=Image.Resampling.BILINEAR
+            )
 
         else:
-            # 默认 "fit": 等比完整包含 (保持原始比例缩放，居中黑边补全，画面 100% 完整不被裁剪拉伸)
-            scale = min(target_w / img_w, target_h / img_h)
-            new_w = min(target_w, max(1, int(round(img_w * scale))))
-            new_h = min(target_h, max(1, int(round(img_h * scale))))
+            # 默认 "fit": 等比完整包含 (保持原始比例缩放，居中黑边补全，绝不拉伸、绝不裁剪)
+            thumb = pil_img.copy()
+            thumb.thumbnail((target_w, target_h), Image.Resampling.BILINEAR)
+            frame_pil = Image.new("RGB", (target_w, target_h), (0, 0, 0))
+            x_offset = max(0, (target_w - thumb.width) // 2)
+            y_offset = max(0, (target_h - thumb.height) // 2)
+            frame_pil.paste(thumb, (x_offset, y_offset))
 
-            interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-            resized = cv2.resize(img, (new_w, new_h), interpolation=interp)
-
-            canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
-            x_offset = max(0, (target_w - new_w) // 2)
-            y_offset = max(0, (target_h - new_h) // 2)
-            canvas[y_offset : y_offset + new_h, x_offset : x_offset + new_w] = resized
-            frame = canvas
-
-        # 水平镜像翻转处理 (抵消浏览器/会议软件的前置镜像)
         if flip_h:
-            frame = cv2.flip(frame, 1)
+            frame_pil = frame_pil.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
-        # 转换为 pyvirtualcam 所需的 RGB 色彩空间
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # 确保输出为连续的 C-contiguous uint8 RGB 数组 (防止驱动层内存失配导致绿屏)
+        frame_rgb = np.ascontiguousarray(np.array(frame_pil, dtype=np.uint8))
         return frame_rgb
 
     def _update_cached_frame_locked(self):
@@ -317,30 +300,38 @@ class VirtualCamManager:
         设置要输出的图片
 
         Args:
-            image_path_or_array: 文件路径 (str) 或 numpy 数组 (BGR)
+            image_path_or_array: 文件路径 (str) 或 numpy 数组 / PIL Image
 
         Returns:
             是否成功
         """
         with self._lock:
             if isinstance(image_path_or_array, str):
-                img = cv2.imread(image_path_or_array)
-                if img is None:
-                    logger.error(f"无法读取图片: {image_path_or_array}")
+                try:
+                    safe_path = os.path.abspath(image_path_or_array)
+                    pil_img = Image.open(safe_path).convert("RGB")
+                    img = np.ascontiguousarray(np.array(pil_img, dtype=np.uint8))
+                    self._image = img
+                    logger.info(
+                        f"已加载图片: {safe_path} ({img.shape[1]}x{img.shape[0]})"
+                    )
+                except Exception as e:
+                    logger.error(f"无法读取图片 {image_path_or_array}: {e}")
                     return False
-                self._image = img
-                logger.info(
-                    f"已加载图片: {image_path_or_array} ({img.shape[1]}x{img.shape[0]})"
-                )
             elif isinstance(image_path_or_array, np.ndarray):
-                self._image = image_path_or_array
-                img = image_path_or_array
+                self._image = np.ascontiguousarray(image_path_or_array, dtype=np.uint8)
+                img = self._image
                 logger.info(f"已设置图片数据 ({img.shape[1]}x{img.shape[0]})")
+            elif isinstance(image_path_or_array, Image.Image):
+                pil_img = image_path_or_array.convert("RGB")
+                img = np.ascontiguousarray(np.array(pil_img, dtype=np.uint8))
+                self._image = img
+                logger.info(f"已设置 PIL 图片数据 ({img.shape[1]}x{img.shape[0]})")
             else:
                 logger.error(f"不支持的图片类型: {type(image_path_or_array)}")
                 return False
 
-            # 自动适配分辨率 (若摄像头尚未启动，将输出分辨率直接设置为图片的合规比例)
+            # 自动适配分辨率 (若摄像头尚未启动且开启了 auto_resolution)
             if self._auto_resolution and not self._running:
                 h, w = img.shape[:2]
                 self._width, self._height = self.compute_safe_resolution(w, h)
@@ -392,6 +383,18 @@ class VirtualCamManager:
             self._device = device
         if backend is not None:
             self._backend = backend
+
+        # 在 macOS 上，OBS Virtual Camera 的 CoreMediaIO 扩展严格要求标准 16:9 分辨率 (1280x720 或 1920x1080)
+        # 非标分辨率会导致驱动报 pixel buffer size mismatch 从而使浏览器/软件显示纯绿幕
+        if platform.system() == "Darwin" and (self._width, self._height) not in (
+            (1280, 720),
+            (1920, 1080),
+            (640, 360),
+        ):
+            logger.warning(
+                f"macOS OBS 虚拟相机驱动仅支持标准 16:9 分辨率，已将当前非标分辨率 {self._width}x{self._height} 自动规整为 1280x720 以免绿幕"
+            )
+            self._width, self._height = 1280, 720
 
         # 确保有图片可输出，并计算好最新帧
         with self._lock:
@@ -463,23 +466,18 @@ class VirtualCamManager:
 
     def _create_placeholder(self):
         """创建默认占位画面"""
-        self._image = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+        img = Image.new("RGB", (self._width, self._height), (12, 14, 20))
+        draw = ImageDraw.Draw(img)
         text = "Virtual Camera"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1.2
-        thickness = 2
-        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-        text_x = (self._width - text_size[0]) // 2
-        text_y = (self._height + text_size[1]) // 2
-        cv2.putText(
-            self._image,
+        bbox = draw.textbbox((0, 0), text)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        draw.text(
+            ((self._width - tw) // 2, (self._height - th) // 2),
             text,
-            (text_x, text_y),
-            font,
-            font_scale,
-            (108, 99, 255),
-            thickness,
+            fill=(108, 99, 255),
         )
+        self._image = np.ascontiguousarray(np.array(img, dtype=np.uint8))
         self._update_cached_frame_locked()
         logger.info("已创建默认占位画面")
 
