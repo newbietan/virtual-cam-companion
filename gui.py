@@ -8,7 +8,9 @@ from __future__ import annotations
 import os
 import platform
 import tkinter as tk
+from collections.abc import Callable
 from tkinter import filedialog
+from typing import Any
 
 import numpy as np  # type: ignore
 from PIL import Image, ImageTk  # type: ignore
@@ -21,26 +23,28 @@ from utils import get_log_file, setup_logger
 
 logger = setup_logger("GUI", get_log_file())
 
-# 现代专业深色主题调色盘
+# 现代专业深色高对比度主题调色盘
 COLOR_BG = "#0f1118"  # 根窗口底色
 COLOR_CARD = "#171a24"  # 卡片面板底色
-COLOR_CARD_BORDER = "#232838"  # 卡片描边色
+COLOR_CARD_BORDER = "#282e40"  # 卡片描边色 (清晰对比度)
 COLOR_WELL = "#0a0c12"  # 预览凹槽深色底
-COLOR_WELL_BORDER = "#1b1f2e"  # 预览凹槽描边
-COLOR_FG_PRIMARY = "#f1f5f9"  # 主文字高亮色 (Slate-100)
-COLOR_FG_SECONDARY = "#94a3b8"  # 次级文字标签 (Slate-400)
-COLOR_FG_MUTED = "#64748b"  # 弱化文字提示 (Slate-500)
-COLOR_FG_SUBTLE = "#475569"  # 超弱文字说明 (Slate-600)
+COLOR_WELL_BORDER = "#1f2434"  # 预览凹槽描边
+COLOR_FG_PRIMARY = "#ffffff"  # 主文字纯白色 (高对比清晰)
+COLOR_FG_SECONDARY = "#cbd5e1"  # 次级文字亮色 (Slate-300，清晰不发灰)
+COLOR_FG_MUTED = "#94a3b8"  # 弱化文字提示 (Slate-400)
+COLOR_FG_SUBTLE = "#64748b"  # 超弱文字说明 (Slate-500)
 
-COLOR_BTN_SECONDARY = "#202534"  # 次要按钮背景
-COLOR_BTN_SECONDARY_HOVER = "#2a3144"  # 次要按钮悬停
-COLOR_BTN_CHIP_ACTIVE = "#283556"  # 激活选项高亮底色
+COLOR_BTN_SECONDARY = "#222738"  # 次要按钮背景 (深色实体底，绝不发白)
+COLOR_BTN_SECONDARY_HOVER = "#2e354c"  # 次要按钮悬停
+COLOR_BTN_SECONDARY_BORDER = "#353d57"  # 次要按钮描边
+COLOR_BTN_CHIP_ACTIVE = "#2d3f6d"  # 激活选项高亮底色
 COLOR_BTN_CHIP_ACTIVE_FG = "#ffffff"  # 激活选项文字色
+COLOR_BTN_CHIP_ACTIVE_BORDER = "#4f6cb5"  # 激活选项高亮描边
 COLOR_BTN_SUCCESS = "#10b981"  # 成功/就绪绿 (Emerald-500)
-COLOR_BTN_PRIMARY = "#3b66f5"  # 主要行动按钮蓝
-COLOR_BTN_PRIMARY_HOVER = "#4e75fa"  # 主要行动按钮悬停
-COLOR_BTN_DANGER = "#e11d48"  # 危险/停止按钮红 (Rose-600)
-COLOR_BTN_DANGER_HOVER = "#f43f5e"  # 停止按钮悬停
+COLOR_BTN_PRIMARY = "#2563eb"  # 主要行动按钮亮蓝 (Blue-600)
+COLOR_BTN_PRIMARY_HOVER = "#3b82f6"  # 主要行动按钮悬停 (Blue-500)
+COLOR_BTN_DANGER = "#dc2626"  # 危险/停止按钮鲜红 (Red-600)
+COLOR_BTN_DANGER_HOVER = "#ef4444"  # 停止按钮悬停 (Red-500)
 
 
 def get_ui_font(size: int = 10, weight: str = "normal") -> tuple[str, int, str]:
@@ -65,6 +69,100 @@ def get_mono_font(size: int = 9) -> tuple[str, int, str]:
     else:
         family = "Monospace"
     return (family, size, "normal")
+
+
+class FlatButton(tk.Label):
+    """
+    跨平台高对比度自定义扁平按钮组件
+    解决 macOS 系统下 Tkinter 原生 tk.Button 强制渲染为浅白底色导致文字发白看不清的问题，
+    在所有平台上呈现一致、清晰、高对比的深色卡片质感与悬停动效。
+    """
+
+    def __init__(
+        self,
+        parent,
+        text: str = "",
+        command: Callable[[], None] | None = None,
+        bg: str = COLOR_BTN_SECONDARY,
+        fg: str = COLOR_FG_PRIMARY,
+        hover_bg: str | None = None,
+        active_bg: str | None = None,
+        font: tuple | None = None,
+        padx: int = 12,
+        pady: int = 8,
+        border_color: str | None = None,
+        **kwargs,
+    ):
+        self._command = command
+        self._normal_bg = bg
+        self._normal_fg = fg
+        self._hover_bg = hover_bg or bg
+        self._active_bg = active_bg or hover_bg or bg
+        self._enabled = True
+
+        kwargs.pop("activebackground", None)
+        kwargs.pop("activeforeground", None)
+
+        super().__init__(
+            parent,
+            text=text,
+            bg=bg,
+            fg=fg,
+            font=font or get_ui_font(10, "bold"),
+            padx=padx,
+            pady=pady,
+            cursor="hand2",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=border_color or bg,
+            anchor="center",
+            justify="center",
+            **kwargs,
+        )
+
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _on_enter(self, _e):
+        if self._enabled and self._hover_bg:
+            super().configure(bg=self._hover_bg)
+
+    def _on_leave(self, _e):
+        if self._enabled:
+            super().configure(bg=self._normal_bg)
+
+    def _on_press(self, _e):
+        if self._enabled and self._active_bg:
+            super().configure(bg=self._active_bg)
+
+    def _on_release(self, e):
+        if self._enabled:
+            super().configure(bg=self._normal_bg)
+            if (
+                0 <= e.x <= self.winfo_width()
+                and 0 <= e.y <= self.winfo_height()
+                and self._command
+            ):
+                self._command()
+
+    def configure(self, cnf=None, **kwargs) -> Any:
+        if cnf:
+            kwargs.update(cnf)
+        if "bg" in kwargs:
+            self._normal_bg = kwargs["bg"]
+            if "activebackground" not in kwargs:
+                self._hover_bg = kwargs["bg"]
+        if "fg" in kwargs:
+            self._normal_fg = kwargs["fg"]
+        if "activebackground" in kwargs:
+            self._hover_bg = kwargs.pop("activebackground")
+        if "activeforeground" in kwargs:
+            kwargs.pop("activeforeground")
+        return super().configure(**kwargs)
+
+    config = configure
 
 
 class VirtualCamApp:
@@ -249,7 +347,7 @@ class VirtualCamApp:
         lbl_section = tk.Label(
             control_header,
             text="画面输出调节",
-            font=get_ui_font(9, "bold"),
+            font=get_ui_font(10, "bold"),
             fg=COLOR_FG_SECONDARY,
             bg=COLOR_CARD,
         )
@@ -265,43 +363,38 @@ class VirtualCamApp:
         chips_frame.columnconfigure(2, weight=1)
 
         style_chip = {
-            "font": get_ui_font(9),
-            "bd": 0,
+            "font": get_ui_font(9, "bold"),
             "padx": 6,
-            "pady": 6,
-            "cursor": "hand2",
-            "highlightbackground": COLOR_CARD_BORDER,
-            "highlightthickness": 1,
+            "pady": 7,
+            "border_color": COLOR_BTN_SECONDARY_BORDER,
+            "hover_bg": COLOR_BTN_SECONDARY_HOVER,
         }
 
-        self._btn_flip = tk.Button(
+        self._btn_flip = FlatButton(
             chips_frame,
             text="镜像: 关",
             bg=COLOR_BTN_SECONDARY,
-            fg=COLOR_FG_SECONDARY,
-            activebackground=COLOR_BTN_SECONDARY_HOVER,
+            fg=COLOR_FG_PRIMARY,
             command=self._toggle_flip,
             **style_chip,
         )
         self._btn_flip.grid(row=0, column=0, sticky="ew", padx=(0, 4))
 
-        self._btn_fit = tk.Button(
+        self._btn_fit = FlatButton(
             chips_frame,
             text="适配: 完整",
             bg=COLOR_BTN_SECONDARY,
-            fg=COLOR_FG_SECONDARY,
-            activebackground=COLOR_BTN_SECONDARY_HOVER,
+            fg=COLOR_FG_PRIMARY,
             command=self._cycle_fit_mode,
             **style_chip,
         )
         self._btn_fit.grid(row=0, column=1, sticky="ew", padx=4)
 
-        self._btn_auto_res = tk.Button(
+        self._btn_auto_res = FlatButton(
             chips_frame,
-            text="尺寸: 自动",
+            text="尺寸: 固定 720P",
             bg=COLOR_BTN_SECONDARY,
-            fg=COLOR_FG_SECONDARY,
-            activebackground=COLOR_BTN_SECONDARY_HOVER,
+            fg=COLOR_FG_PRIMARY,
             command=self._toggle_auto_resolution,
             **style_chip,
         )
@@ -318,31 +411,28 @@ class VirtualCamApp:
 
         style_action = {
             "font": get_ui_font(11, "bold"),
-            "bd": 0,
-            "pady": 9,
-            "cursor": "hand2",
-            "highlightthickness": 0,
+            "pady": 10,
         }
 
-        self._btn_select = tk.Button(
+        self._btn_select = FlatButton(
             action_frame,
             text="选择图片",
             bg=COLOR_BTN_SECONDARY,
             fg=COLOR_FG_PRIMARY,
-            activebackground=COLOR_BTN_SECONDARY_HOVER,
-            activeforeground=COLOR_FG_PRIMARY,
+            hover_bg=COLOR_BTN_SECONDARY_HOVER,
+            border_color=COLOR_BTN_SECONDARY_BORDER,
             command=self._select_image,
             **style_action,
         )
         self._btn_select.grid(row=0, column=0, sticky="ew", padx=(0, 6))
 
-        self._btn_start = tk.Button(
+        self._btn_start = FlatButton(
             action_frame,
             text="启动摄像头",
             bg=COLOR_BTN_PRIMARY,
             fg="#ffffff",
-            activebackground=COLOR_BTN_PRIMARY_HOVER,
-            activeforeground="#ffffff",
+            hover_bg=COLOR_BTN_PRIMARY_HOVER,
+            border_color=COLOR_BTN_PRIMARY,
             command=self._toggle_camera,
             **style_action,
         )
@@ -382,15 +472,15 @@ class VirtualCamApp:
                 bg=COLOR_BTN_CHIP_ACTIVE,
                 fg=COLOR_BTN_CHIP_ACTIVE_FG,
                 activebackground=COLOR_BTN_CHIP_ACTIVE,
-                activeforeground=COLOR_BTN_CHIP_ACTIVE_FG,
+                highlightbackground=COLOR_BTN_CHIP_ACTIVE_BORDER,
             )
         else:
             self._btn_flip.configure(
                 text="镜像: 关闭 (正常)",
                 bg=COLOR_BTN_SECONDARY,
-                fg=COLOR_FG_SECONDARY,
+                fg=COLOR_FG_PRIMARY,
                 activebackground=COLOR_BTN_SECONDARY_HOVER,
-                activeforeground=COLOR_FG_PRIMARY,
+                highlightbackground=COLOR_BTN_SECONDARY_BORDER,
             )
 
         # 2. 适配模式按钮
@@ -403,7 +493,8 @@ class VirtualCamApp:
         self._btn_fit.configure(
             text=mode_text_map.get(fit_mode, "适配: 完整"),
             bg=COLOR_BTN_SECONDARY,
-            fg=COLOR_FG_PRIMARY if fit_mode == "fit" else COLOR_FG_SECONDARY,
+            fg=COLOR_FG_PRIMARY,
+            highlightbackground=COLOR_BTN_SECONDARY_BORDER,
         )
 
         # 3. 自动分辨率按钮
@@ -412,17 +503,17 @@ class VirtualCamApp:
             self._btn_auto_res.configure(
                 text="尺寸: 自动契合",
                 bg="#1a2e26",
-                fg="#a7f3d0",
+                fg="#6ee7b7",
                 activebackground="#1a2e26",
-                activeforeground="#a7f3d0",
+                highlightbackground="#2a5a46",
             )
         else:
             self._btn_auto_res.configure(
-                text="尺寸: 固定分辨率",
+                text="尺寸: 固定 720P",
                 bg=COLOR_BTN_SECONDARY,
-                fg=COLOR_FG_SECONDARY,
+                fg=COLOR_FG_PRIMARY,
                 activebackground=COLOR_BTN_SECONDARY_HOVER,
-                activeforeground=COLOR_FG_PRIMARY,
+                highlightbackground=COLOR_BTN_SECONDARY_BORDER,
             )
 
     def _toggle_flip(self):
@@ -532,7 +623,9 @@ class VirtualCamApp:
             self._btn_start.configure(
                 text="停止推流",
                 bg=COLOR_BTN_DANGER,
+                fg="#ffffff",
                 activebackground=COLOR_BTN_DANGER_HOVER,
+                highlightbackground=COLOR_BTN_DANGER,
             )
         else:
             self._status_var.set("○ 已停止")
@@ -544,7 +637,9 @@ class VirtualCamApp:
             self._btn_start.configure(
                 text="启动摄像头",
                 bg=COLOR_BTN_PRIMARY,
+                fg="#ffffff",
                 activebackground=COLOR_BTN_PRIMARY_HOVER,
+                highlightbackground=COLOR_BTN_PRIMARY,
             )
 
     def _on_cam_image_changed(self, _img_array: np.ndarray):
